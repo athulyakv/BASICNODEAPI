@@ -1,110 +1,109 @@
 const express = require('express');
 require('dotenv').config();
 
+const pool = require('./db');
+
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 // --------------------
 // MIDDLEWARE
 // --------------------
-app.use(express.json()); // read JSON body
-
-// Set response headers
-app.use((req, res, next) => {
-  res.setHeader('Content-Type', 'application/json');
-  next();
-});
-
-// --------------------
-// SIMPLE DATABASE
-// --------------------
-let users = [
-  { id: 1, name: "Athulya" }
-];
-
-// --------------------
-// AUTH MIDDLEWARE
-// --------------------
-function authMiddleware(req, res, next) {
-  const token = req.headers['authorization'];
-
-  if (!token || token !== process.env.AUTH_TOKEN) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  next();
-}
+app.use(express.json());
 
 // --------------------
 // ROOT API
 // --------------------
 app.get('/', (req, res) => {
-  res.json({ message: "Node.js REST API is running" });
+  res.json({ message: 'Node.js + PostgreSQL API is running' });
 });
 
 // --------------------
-// GET API
+// DB TEST API
 // --------------------
-app.get('/users', (req, res) => {
+app.get('/db-test', async (req, res) => {
   try {
-    res.status(200).json(users);
+    const result = await pool.query('SELECT NOW()');
+    res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // --------------------
-// POST API
+// CREATE USER
 // --------------------
-app.post('/users', authMiddleware, (req, res) => {
+app.post('/users', async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, email } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ message: "Name is required" });
+    if (!name || !email) {
+      return res.status(400).json({ message: 'Name and email required' });
     }
 
-    const newUser = {
-      id: users.length + 1,
-      name
-    };
+    const result = await pool.query(
+      'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *',
+      [name, email]
+    );
 
-    users.push(newUser);
-    res.status(201).json(newUser);
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // --------------------
-// PUT API
+// READ USERS
 // --------------------
-app.put('/users/:id', authMiddleware, (req, res) => {
+app.get('/users', async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { name } = req.body;
+    const result = await pool.query('SELECT * FROM users ORDER BY id');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    const user = users.find(u => u.id === id);
+// --------------------
+// UPDATE USER
+// --------------------
+app.put('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email } = req.body;
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+    const result = await pool.query(
+      'UPDATE users SET name=$1, email=$2 WHERE id=$3 RETURNING *',
+      [name, email, id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
-    user.name = name;
-    res.json(user);
+    res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // --------------------
-// DELETE API
+// DELETE USER
 // --------------------
-app.delete('/users/:id', authMiddleware, (req, res) => {
+app.delete('/users/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    users = users.filter(u => u.id !== id);
+    const { id } = req.params;
 
-    res.json({ message: "User deleted successfully" });
+    const result = await pool.query(
+      'DELETE FROM users WHERE id=$1',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ message: 'User deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -114,12 +113,12 @@ app.delete('/users/:id', authMiddleware, (req, res) => {
 // 404 HANDLER
 // --------------------
 app.use((req, res) => {
-  res.status(404).json({ message: "Route not found" });
+  res.status(404).json({ message: 'Route not found' });
 });
 
 // --------------------
 // START SERVER
 // --------------------
-app.listen(process.env.PORT, () => {
-  console.log(`Server running on http://localhost:${process.env.PORT}`);
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
